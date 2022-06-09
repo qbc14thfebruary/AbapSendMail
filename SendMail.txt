@@ -1,0 +1,188 @@
+REPORT Z__TEST02.
+*** Start send mail
+** Step 1: Create text in so10 with format HTML
+** Read 2: read text with 'READ_TEXT'.
+** Step 3: Call Function 'SO_NEW_DOCUMENT_ATT_SEND_API1'
+*** End send mail
+
+SELECTION-SCREEN BEGIN OF BLOCK B1.
+PARAMETERS: P_ADDR TYPE ADR6-SMTP_ADDR OBLIGATORY.
+PARAMETERS: P_SUBJ TYPE SOLISTI1-LINE.  .
+SELECTION-SCREEN END   OF BLOCK B1.
+
+TYPES: T_SOLISTI1   TYPE TABLE OF SOLISTI1,
+       T_SOPCKLSTI1 TYPE TABLE OF SOPCKLSTI1,
+       T_SOMLRECI1  TYPE TABLE OF SOMLRECI1.
+
+DATA: GT_CONTENT       TYPE T_SOLISTI1,
+      GT_PACKING_LIST  TYPE T_SOPCKLSTI1,
+      GS_DOCUMENT_DATA TYPE SODOCCHGI1,
+      GV_CONTENT_LINES TYPE I,
+      GT_RECEIVER      TYPE T_SOMLRECI1,
+      GV_MSG_TEXT      TYPE STRING.
+
+
+
+START-OF-SELECTION.
+*  STEP1
+  PERFORM HANDLE_BODY.
+
+  PERFORM FILL_PACKING_LIST TABLES GT_PACKING_LIST.
+
+  PERFORM FILL_DOCUMENT_DATA TABLES GT_CONTENT
+                             USING  GV_CONTENT_LINES
+                                    P_SUBJ
+                             CHANGING GS_DOCUMENT_DATA.
+
+  PERFORM FILL_RECEIVER TABLES GT_RECEIVER
+                        USING  P_ADDR.
+
+*  STEP 3
+  PERFORM SEND_MAIL TABLES GT_PACKING_LIST
+                           GT_CONTENT
+                           GT_RECEIVER
+                     USING GS_DOCUMENT_DATA.
+***---------------------------------------
+FORM HANDLE_BODY .
+
+  DATA: LS_HEADER TYPE THEAD,
+        LT_LINES  TYPE TABLE OF TLINE.
+
+  CALL FUNCTION 'READ_TEXT'
+    EXPORTING
+      CLIENT                  = SY-MANDT
+      ID                      = 'ST'
+      LANGUAGE                = SY-LANGU
+      NAME                    = 'Z_MAIL'
+      OBJECT                  = 'TEXT'
+    IMPORTING
+      HEADER                  = LS_HEADER
+    TABLES
+      LINES                   = LT_LINES
+    EXCEPTIONS
+      ID                      = 1
+      LANGUAGE                = 2
+      NAME                    = 3
+      NOT_FOUND               = 4
+      OBJECT                  = 5
+      REFERENCE_CHECK         = 6
+      WRONG_ACCESS_TO_ARCHIVE = 7
+      OTHERS                  = 8.
+  DATA LS_CONTENT LIKE LINE OF GT_CONTENT.
+  LOOP AT LT_LINES INTO DATA(LS_LINES).
+    REPLACE ALL OCCURRENCES OF '(><<)>' IN LS_LINES  WITH SPACE.
+    LS_CONTENT = LS_LINES-TDLINE.
+    APPEND LS_CONTENT TO GT_CONTENT.
+    CLEAR: LS_CONTENT.
+  ENDLOOP.
+  DESCRIBE TABLE GT_CONTENT LINES GV_CONTENT_LINES.
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form FILL_PACKING_LIST
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+*      -->P_LT_PACKING_LIST  text
+*&---------------------------------------------------------------------*
+FORM FILL_PACKING_LIST  TABLES   PT_PACKING_LIST TYPE T_SOPCKLSTI1.
+  DATA: LS_PACKING_LIST TYPE SOPCKLSTI1.
+
+* update the packing list.
+  LS_PACKING_LIST-TRANSF_BIN = ' '.
+  LS_PACKING_LIST-BODY_START = 1.
+  LS_PACKING_LIST-BODY_NUM = GV_CONTENT_LINES.
+  LS_PACKING_LIST-DOC_TYPE = 'HTM'. "'RAW'.
+  APPEND LS_PACKING_LIST TO PT_PACKING_LIST.
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form FILL_DOCUMENT_DATA
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+*      -->P_GT_CONTENT  text
+*      -->P_GV_CONTENT_LINES  text
+*      -->P_GV_SUBJECT  text
+*      <--P_GS_DOCUMENT_DATA  text
+*&---------------------------------------------------------------------*
+FORM FILL_DOCUMENT_DATA  TABLES   PT_CONTENT TYPE T_SOLISTI1
+                         USING    P_CONTENT_LINES
+                                  P_SUBJECT
+                         CHANGING PS_DOCUMENT_DATA TYPE SODOCCHGI1.
+  DATA: LS_CONTENT TYPE SOLISTI1.
+
+  READ TABLE PT_CONTENT INDEX P_CONTENT_LINES INTO LS_CONTENT.
+  PS_DOCUMENT_DATA-DOC_SIZE = ( GV_CONTENT_LINES - 1 ) * 255 + STRLEN( LS_CONTENT ).
+  PS_DOCUMENT_DATA-OBJ_NAME  = 'SAPoffice'.
+  PS_DOCUMENT_DATA-OBJ_DESCR = P_SUBJECT. "mail subject
+  PS_DOCUMENT_DATA-OBJ_PRIO = 5.
+  PS_DOCUMENT_DATA-PRIORITY = 5.
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form FILL_RECEIVER
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+*      -->P_GT_RECEIVER  text
+*      -->P_GV_ADDRESS  text
+*&---------------------------------------------------------------------*
+FORM FILL_RECEIVER  TABLES PT_RECEIVER TYPE T_SOMLRECI1
+                    USING  P_ADDRESS TYPE ADR6-SMTP_ADDR.
+  DATA: LS_RECEIVER TYPE SOMLRECI1.
+
+  LS_RECEIVER-RECEIVER = P_ADDRESS.
+  LS_RECEIVER-REC_TYPE = 'U'.
+  LS_RECEIVER-COM_TYPE = 'INT'.
+  APPEND LS_RECEIVER TO PT_RECEIVER.
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form SEND_MAIL
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+*      -->P_GT_PACKING_LIST  text
+*      -->P_LGT_HEADER  text
+*      -->P_GT_CONTENT  text
+*      -->P_GT_RECEIVER  text
+*      -->P_GS_DOCUMENT_DATA  text
+*      <--P_GV_SENT_TO_ALL  text
+*      <--P_GV_NEW_OBJECT_ID  text
+*      <--P_GV_RC  text
+*&---------------------------------------------------------------------*
+FORM SEND_MAIL  TABLES  PT_PACKING_LIST  TYPE T_SOPCKLSTI1
+*                        PT_HEADER        TYPE T_SOLISTI1
+                        PT_CONTENT       TYPE T_SOLISTI1
+                        PT_RECEIVER      TYPE T_SOMLRECI1
+               USING    PS_DOCUMENT_DATA TYPE SODOCCHGI1.
+*               CHANGING P_SENT_TO_ALL    TYPE SY-BINPT
+*                        P_NEW_OBJECT_ID  TYPE SOFOLENTI1-OBJECT_ID.
+  CALL FUNCTION 'SO_NEW_DOCUMENT_ATT_SEND_API1'
+    EXPORTING
+      DOCUMENT_DATA              = PS_DOCUMENT_DATA
+      COMMIT_WORK                = 'X'
+*    IMPORTING
+*     SENT_TO_ALL                = P_SENT_TO_ALL
+*     NEW_OBJECT_ID              = P_NEW_OBJECT_ID
+    TABLES
+      PACKING_LIST               = PT_PACKING_LIST
+*      OBJECT_HEADER              = PT_HEADER
+      CONTENTS_TXT               = PT_CONTENT
+      RECEIVERS                  = PT_RECEIVER
+    EXCEPTIONS
+      TOO_MANY_RECEIVERS         = 1
+      DOCUMENT_NOT_SENT          = 2
+      DOCUMENT_TYPE_NOT_EXIST    = 3
+      OPERATION_NO_AUTHORIZATION = 4
+      PARAMETER_ERROR            = 5
+      X_ERROR                    = 6
+      ENQUEUE_ERROR              = 7
+      OTHERS                     = 8.
+  IF SY-SUBRC <> 0.
+*   keep error message
+    MESSAGE ID SY-MSGID TYPE SY-MSGTY NUMBER SY-MSGNO
+            WITH SY-MSGV1 SY-MSGV2 SY-MSGV3 SY-MSGV4
+            INTO GV_MSG_TEXT.
+  ENDIF.
+
+ENDFORM.
+***-------------------------------------------------------
