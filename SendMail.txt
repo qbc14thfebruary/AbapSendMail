@@ -1,3 +1,4 @@
+** Using Tcode: so10.
 REPORT Z__TEST02.
 *** Start send mail
 ** Step 1: Create text in so10 with format HTML
